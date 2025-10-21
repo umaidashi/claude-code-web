@@ -6,3 +6,8 @@ dist/
 coverage/
 .vscode/
 .idea/
+
+# Turso/SQLite database files
+*.db
+*.db-shm
+*.db-wal

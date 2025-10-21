@@ -1,24 +1,29 @@
 import { Hono } from 'hono';
-import { query } from '../db/connection';
+import { RepositoryFactory } from '../infrastructure/repository-factory';
 
 const api = new Hono();
 
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  created_at: string;
-  updated_at: string;
-}
+// Get the repository instance (implementation is determined by DATABASE_TYPE env var)
+const userRepository = RepositoryFactory.getUserRepository();
 
 api.get('/health', async (c) => {
   try {
-    const result = await query('SELECT NOW() as time');
+    const health = await userRepository.healthCheck();
+
+    if (!health.connected) {
+      return c.json({
+        status: 'error',
+        timestamp: new Date().toISOString(),
+        database: 'disconnected',
+      }, 503);
+    }
+
     return c.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
       database: 'connected',
-      db_time: result.rows[0].time
+      db_time: health.timestamp,
+      db_type: RepositoryFactory.getDatabaseType(),
     });
   } catch (error) {
     return c.json({
@@ -32,11 +37,11 @@ api.get('/health', async (c) => {
 
 api.get('/users', async (c) => {
   try {
-    const result = await query('SELECT * FROM users ORDER BY id ASC');
+    const users = await userRepository.findAll();
     return c.json({
       success: true,
-      data: result.rows,
-      count: result.rowCount
+      data: users,
+      count: users.length
     });
   } catch (error) {
     console.error('Error fetching users:', error);
@@ -58,9 +63,9 @@ api.get('/users/:id', async (c) => {
       }, 400);
     }
 
-    const result = await query('SELECT * FROM users WHERE id = $1', [id]);
+    const user = await userRepository.findById(id);
 
-    if (result.rowCount === 0) {
+    if (!user) {
       return c.json({
         success: false,
         error: 'User not found'
@@ -69,7 +74,7 @@ api.get('/users/:id', async (c) => {
 
     return c.json({
       success: true,
-      data: result.rows[0]
+      data: user
     });
   } catch (error) {
     console.error('Error fetching user:', error);
@@ -92,23 +97,23 @@ api.post('/users', async (c) => {
     }
 
     // Check if email already exists
-    const existingUser = await query('SELECT id FROM users WHERE email = $1', [body.email]);
+    const existingUser = await userRepository.findByEmail(body.email);
 
-    if (existingUser.rowCount && existingUser.rowCount > 0) {
+    if (existingUser) {
       return c.json({
         success: false,
         error: 'Email already exists'
       }, 409);
     }
 
-    const result = await query(
-      'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
-      [body.name, body.email]
-    );
+    const user = await userRepository.create({
+      name: body.name,
+      email: body.email,
+    });
 
     return c.json({
       success: true,
-      data: result.rows[0]
+      data: user
     }, 201);
   } catch (error) {
     console.error('Error creating user:', error);
@@ -132,50 +137,31 @@ api.put('/users/:id', async (c) => {
     }
 
     // Check if user exists
-    const userCheck = await query('SELECT id FROM users WHERE id = $1', [id]);
+    const existingUser = await userRepository.findById(id);
 
-    if (userCheck.rowCount === 0) {
+    if (!existingUser) {
       return c.json({
         success: false,
         error: 'User not found'
       }, 404);
     }
 
-    // Build update query dynamically based on provided fields
-    const updates: string[] = [];
-    const values: any[] = [];
-    let paramCount = 1;
-
-    if (body.name) {
-      updates.push(`name = $${paramCount}`);
-      values.push(body.name);
-      paramCount++;
-    }
-
-    if (body.email) {
-      updates.push(`email = $${paramCount}`);
-      values.push(body.email);
-      paramCount++;
-    }
-
-    if (updates.length === 0) {
+    // Check if no fields to update
+    if (!body.name && !body.email) {
       return c.json({
         success: false,
         error: 'No fields to update'
       }, 400);
     }
 
-    updates.push(`updated_at = CURRENT_TIMESTAMP`);
-    values.push(id);
-
-    const result = await query(
-      `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`,
-      values
-    );
+    const updatedUser = await userRepository.update(id, {
+      name: body.name,
+      email: body.email,
+    });
 
     return c.json({
       success: true,
-      data: result.rows[0]
+      data: updatedUser
     });
   } catch (error) {
     console.error('Error updating user:', error);
@@ -197,9 +183,9 @@ api.delete('/users/:id', async (c) => {
       }, 400);
     }
 
-    const result = await query('DELETE FROM users WHERE id = $1 RETURNING *', [id]);
+    const deletedUser = await userRepository.delete(id);
 
-    if (result.rowCount === 0) {
+    if (!deletedUser) {
       return c.json({
         success: false,
         error: 'User not found'
@@ -209,7 +195,7 @@ api.delete('/users/:id', async (c) => {
     return c.json({
       success: true,
       message: 'User deleted successfully',
-      data: result.rows[0]
+      data: deletedUser
     });
   } catch (error) {
     console.error('Error deleting user:', error);

@@ -4,12 +4,19 @@ Hono を使った API サーバー
 
 ## 概要
 
-このプロジェクトは、軽量な Web フレームワーク [Hono](https://hono.dev/) を使用した API サーバーです。PostgreSQL データベースと統合されており、永続的なデータ管理が可能です。
+このプロジェクトは、軽量な Web フレームワーク [Hono](https://hono.dev/) を使用した API サーバーです。**クリーンアーキテクチャ**と**リポジトリパターン**を採用し、データベースへの依存性を排除した設計になっています。
 
-## 機能
+## 特徴
 
+### アーキテクチャ
+- **クリーンアーキテクチャ**: ドメイン層とインフラ層を分離
+- **リポジトリパターン**: データベース実装の抽象化
+- **マルチデータベース対応**: PostgreSQL と Turso DB の両方をサポート
+- **環境変数による切り替え**: コード変更なしでデータベースを切り替え可能
+
+### 機能
 - RESTful API エンドポイント
-- PostgreSQL データベース統合
+- PostgreSQL / Turso DB データベース統合
 - CORS サポート
 - ロギング機能
 - ユーザー管理 API (CRUD 操作)
@@ -28,21 +35,33 @@ Hono を使った API サーバー
 npm install
 ```
 
-### データベースの起動
+### データベースの選択
 
-#### 方法1: Docker Compose を使用（推奨）
+このプロジェクトは **PostgreSQL** と **Turso DB** の両方をサポートしています。
+`.env` ファイルの `DATABASE_TYPE` で使用するデータベースを選択できます。
 
-Docker Compose を使用して PostgreSQL データベースを起動します：
+#### オプション1: Turso DB（SQLite ベース）を使用
+
+Turso DB はローカルファイルとして動作する軽量なデータベースです：
+
+```bash
+# データベースを初期化
+npx tsx scripts/init-turso.ts
+
+# .env ファイルで DATABASE_TYPE を設定
+DATABASE_TYPE=turso
+TURSO_DATABASE_URL=file:local.db
+```
+
+#### オプション2: PostgreSQL を使用
+
+##### 方法A: Docker Compose
 
 ```bash
 docker-compose up -d
 ```
 
-データベースが起動したら、自動的にスキーマとサンプルデータが初期化されます。
-
-#### 方法2: PostgreSQL を直接インストール
-
-Docker が利用できない環境では、PostgreSQL を直接インストールできます：
+##### 方法B: 直接インストール
 
 ```bash
 # Ubuntu/Debian
@@ -56,6 +75,14 @@ sudo service postgresql start
 sudo -u postgres psql -c "CREATE DATABASE hono_api;"
 sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';"
 sudo -u postgres psql -d hono_api -f init.sql
+
+# .env ファイルで DATABASE_TYPE を設定
+DATABASE_TYPE=postgres
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=hono_api
 ```
 
 ### 環境変数の設定
@@ -165,18 +192,50 @@ DELETE /api/users/:id
 ```
 .
 ├── src/
-│   ├── index.ts          # メインエントリーポイント
-│   ├── db/
-│   │   └── connection.ts # PostgreSQL 接続設定
-│   └── routes/
-│       └── api.ts        # API ルート定義
-├── docker-compose.yml    # Docker Compose 設定
-├── init.sql              # データベース初期化スクリプト
+│   ├── domain/                    # ドメイン層（ビジネスロジック）
+│   │   ├── entities/
+│   │   │   └── user.ts            # User エンティティ
+│   │   └── repositories/
+│   │       └── user-repository.ts # Repository インターフェース
+│   ├── infrastructure/            # インフラ層（外部依存）
+│   │   ├── db/
+│   │   │   ├── postgres/
+│   │   │   │   ├── connection.ts       # PostgreSQL 接続
+│   │   │   │   └── user-repository.ts  # PostgreSQL 実装
+│   │   │   └── turso/
+│   │   │       ├── connection.ts       # Turso 接続
+│   │   │       ├── user-repository.ts  # Turso 実装
+│   │   │       └── init.sql            # Turso 初期化SQL
+│   │   └── repository-factory.ts  # Repository ファクトリー
+│   ├── routes/
+│   │   └── api.ts                 # API ルート定義
+│   └── index.ts                   # メインエントリーポイント
+├── scripts/
+│   └── init-turso.ts              # Turso DB 初期化スクリプト
+├── docker-compose.yml             # Docker Compose 設定
+├── init.sql                       # PostgreSQL 初期化SQL
 ├── package.json
 ├── tsconfig.json
-├── .env.example          # 環境変数のサンプル
+├── .env.example                   # 環境変数のサンプル
 └── README.md
 ```
+
+### アーキテクチャ説明
+
+このプロジェクトは**リポジトリパターン**と**クリーンアーキテクチャ**を採用しています：
+
+1. **ドメイン層** (`src/domain/`)
+   - エンティティとリポジトリインターフェースを定義
+   - データベースの実装詳細に依存しない
+
+2. **インフラ層** (`src/infrastructure/`)
+   - 具体的なデータベース実装を提供
+   - PostgreSQL と Turso DB の両方を実装
+   - ファクトリーパターンで実装を切り替え
+
+3. **API層** (`src/routes/`)
+   - リポジトリインターフェースのみに依存
+   - データベースの実装を意識せずにビジネスロジックを記述
 
 ## データベーススキーマ
 
@@ -192,12 +251,23 @@ DELETE /api/users/:id
 
 ## 技術スタック
 
+### フレームワーク
 - [Hono](https://hono.dev/) - 軽量 Web フレームワーク
 - [TypeScript](https://www.typescriptlang.org/) - 型安全な JavaScript
 - [Node.js](https://nodejs.org/) - JavaScript ランタイム
+
+### データベース
 - [PostgreSQL](https://www.postgresql.org/) - リレーショナルデータベース
-- [Docker](https://www.docker.com/) - コンテナ化プラットフォーム
+- [Turso](https://turso.tech/) / [LibSQL](https://github.com/tursodatabase/libsql) - SQLite ベースのエッジデータベース
+
+### データベースクライアント
 - [node-postgres (pg)](https://node-postgres.com/) - PostgreSQL クライアント
+- [@libsql/client](https://github.com/tursodatabase/libsql-client-ts) - Turso/LibSQL クライアント
+
+### その他
+- [Docker](https://www.docker.com/) - コンテナ化プラットフォーム
+- Repository Pattern - データアクセスの抽象化
+- Clean Architecture - ドメイン駆動設計
 
 ## Docker コマンド
 

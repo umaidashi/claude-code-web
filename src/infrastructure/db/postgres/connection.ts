@@ -18,7 +18,7 @@ pool.on('connect', () => {
 });
 
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
+  console.error('Unexpected error on idle PostgreSQL client', err);
   process.exit(-1);
 });
 
@@ -33,29 +33,6 @@ export const query = async (text: string, params?: any[]) => {
     console.error('Database query error:', error);
     throw error;
   }
-};
-
-export const getClient = async () => {
-  const client = await pool.connect();
-  const query = client.query;
-  const release = client.release;
-
-  const timeout = setTimeout(() => {
-    console.error('A client has been checked out for more than 5 seconds!');
-  }, 5000);
-
-  client.query = (...args: any[]) => {
-    return query.apply(client, args);
-  };
-
-  client.release = () => {
-    clearTimeout(timeout);
-    client.query = query;
-    client.release = release;
-    return release.apply(client);
-  };
-
-  return client;
 };
 
 export default pool;
