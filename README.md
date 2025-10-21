@@ -30,6 +30,8 @@ npm install
 
 ### データベースの起動
 
+#### 方法1: Docker Compose を使用（推奨）
+
 Docker Compose を使用して PostgreSQL データベースを起動します：
 
 ```bash
@@ -37,6 +39,24 @@ docker-compose up -d
 ```
 
 データベースが起動したら、自動的にスキーマとサンプルデータが初期化されます。
+
+#### 方法2: PostgreSQL を直接インストール
+
+Docker が利用できない環境では、PostgreSQL を直接インストールできます：
+
+```bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install postgresql postgresql-contrib
+
+# PostgreSQL サービスを起動
+sudo service postgresql start
+
+# データベースとスキーマを作成
+sudo -u postgres psql -c "CREATE DATABASE hono_api;"
+sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';"
+sudo -u postgres psql -d hono_api -f init.sql
+```
 
 ### 環境変数の設定
 
